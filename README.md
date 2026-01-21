@@ -302,7 +302,7 @@ As a **Computer Science student** seeking internships, this repository:
 1. **Demonstrates consistency** — Regular commits show discipline
 2. **Proves technical depth** — Not just solving, but understanding
 3. **Shows communication skills** — Clear explanations matter in interviews
-4. **Complements my projects** — Algorithms used in [NetSight](https://github.com/your_username/netsight) came from here
+4. **Complements my projects** — Algorithms used in [Spendora](https://github.com/Sajal-kanwal/Spendora) came from here
 
 ### Real-world applications:
 
@@ -314,10 +314,10 @@ As a **Computer Science student** seeking internships, this repository:
 
 ## 📬 Connect With Me
 
-- **LeetCode:** [@your_username](https://leetcode.com/your_username)
-- **LinkedIn:** [Your Name](https://linkedin.com/in/your-profile)
-- **Portfolio:** [yourwebsite.com](https://yourwebsite.com)
-- **Email:** your.email@example.com
+- **LeetCode:** [@your_username](https://leetcode.com/sajal-kanwal)
+- **LinkedIn:** [Your Name](https://linkedin.com/in/sajal-kanwal)
+- **Portfolio:** [yourwebsite.com](https://sajal-kanwal.vercel.app)
+- **Email:** sajal.kanwal02@gmail.com
 
 ---
 
