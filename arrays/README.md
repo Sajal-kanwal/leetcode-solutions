@@ -1,9 +1,3 @@
----
-
-## **Part 5: Topic-Specific README Example**
-
-### **arrays/README.md**
-````markdown
 # Arrays — Problems & Patterns
 
 > **Total Problems: 45** | Easy: 20 | Medium: 18 | Hard: 7
@@ -79,42 +73,82 @@
 
 ## 🎓 Study Notes
 
+
+
 ### Two Pointers Pattern
+
 ```python
+
 # Use when array is sorted or can be sorted
+
 left, right = 0, len(arr) - 1
+
 while left < right:
+
     if condition:
+
         # Process and move pointers
+
         left += 1
+
     else:
+
         right -= 1
+
 ```
+
+
 
 ### Sliding Window Pattern
+
 ```python
+
 # For contiguous subarray problems
+
 left = 0
+
 for right in range(len(arr)):
+
     # Expand window
+
     while condition_violated:
+
         # Shrink window
+
         left += 1
+
 ```
 
+
+
 ### Kadane's Algorithm
+
 ```python
+
 # Maximum subarray sum
+
 max_ending_here = max_so_far = arr[0]
+
 for num in arr[1:]:
+
     max_ending_here = max(num, max_ending_here + num)
+
     max_so_far = max(max_so_far, max_ending_here)
+
 ```
+
+
 
 ---
 
+
+
 ## 📊 Progress
+
 ````
+
 Easy:   ████████████████████ 20/20 (100%)
+
 Medium: ██████████████████░░ 18/25 (72%)
+
 Hard:   ███████░░░░░░░░░░░░░  7/15 (47%)
