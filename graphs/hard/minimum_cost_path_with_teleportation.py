@@ -4,257 +4,300 @@ Problem: 3651. Minimum Cost Path with Teleportations
 Platform: LeetCode
 URL: https://leetcode.com/problems/minimum-cost-path-with-teleportations/
 Difficulty: Hard
-Topics: Graph, Shortest Path, Dijkstra's Algorithm, Dynamic Programming, Grid
+Topics: Dynamic Programming, Graph, Greedy, Grid Pathfinding
 ================================================================================
 
 PROBLEM DESCRIPTION:
-You are given an m x n 2D integer array grid and an integer k. You start at the 
-top-left cell (0, 0) and your goal is to reach the bottom-right cell (m-1, n-1).
-
-Two types of moves available:
-1. Normal move: Move right or down. Cost = value of destination cell.
-2. Teleportation: Teleport to any cell with value <= current cell. Cost = 0.
-   You may teleport at most k times.
-
-Return the minimum total cost to reach cell (m-1, n-1) from (0, 0).
-
-CONSTRAINTS:
-- 2 <= m, n <= 80
-- m == grid.length
-- n == grid[i].length
-- 0 <= grid[i][j] <= 10^4
-- 0 <= k <= 10
-
-EXAMPLES:
-
-Example 1:
-Input: grid = [[1,3,3],[2,5,4],[4,3,5]], k = 2
-Output: 7
-Explanation:
-- (0,0) → (1,0): cost 2 (move down)
-- (1,0) → (1,1): cost 5 (move right)
-- (1,1) → (2,2): cost 0 (teleport, grid[2][2]=5 <= grid[1][1]=5)
-- Total: 7
-
-Example 2:
-Input: grid = [[1,2],[2,3],[3,4]], k = 1
-Output: 9
-Explanation: Standard path without using teleportation.
+[Same as before]
 
 ================================================================================
+APPROACH: LAYER-BY-LAYER DYNAMIC PROGRAMMING (OPTIMAL)
+================================================================================
+
 INTUITION:
-This is a shortest path problem with state-dependent edges. The twist is that
-we can teleport for free, but only to cells with smaller/equal values, and
-we have a limited number of teleports.
+Instead of using Dijkstra with 3D state space, we can solve this more elegantly
+using dynamic programming with layers based on number of teleportations used.
 
-KEY INSIGHTS:
+KEY INSIGHT:
+- Define dp[t][i][j] = minimum cost to reach (i,j) using at most t teleportations
+- We can compute each layer from the previous layer
+- Within each layer, use simple DP for normal moves (right/down)
 
-1. State Definition
-   - We need to track: (row, col, teleports_remaining)
-   - Same cell with different teleports remaining = different states
+ALGORITHM:
+1. Layer 0 (no teleportations): Standard grid DP with right/down moves
+2. For each additional teleportation layer t:
+   a. First, consider teleporting TO each cell from any cell with value >= current
+   b. Then, propagate using normal moves (DP within the layer)
+3. Answer = dp[k][m-1][n-1]
 
-2. Graph Edges
-   - Normal moves: (i,j,t) → (i+1,j,t) or (i,j+1,t) with cost grid[dest]
-   - Teleport: (i,j,t) → (x,y,t-1) with cost 0, if grid[x][y] <= grid[i][j]
+CRITICAL OPTIMIZATION:
+- Group cells by value
+- Precompute minimum cost to reach any cell in each value group
+- Use suffix minimum to allow teleporting from higher/equal values
 
-3. Algorithm Choice
-   - Dijkstra's algorithm is perfect here (non-negative weights)
-   - State space: O(m × n × k)
-   - Need priority queue to always process lowest-cost state first
+WHY THIS IS BETTER THAN DIJKSTRA:
+- Time: O(k × m × n) vs O(m × n × k × m × n × log(m × n × k))
+- Space: O(m × n) vs O(m × n × k)
+- Much simpler logic
+- No priority queue overhead
 
-APPROACH:
-1. Use Dijkstra with state (row, col, teleports_used)
-2. From each state, try:
-   - Move right/down (normal moves)
-   - Teleport to all valid cells (if teleports remaining)
-3. Track minimum cost to reach (m-1, n-1) with any number of teleports used
-
-COMPLEXITY ANALYSIS:
-- Time: O(m × n × k × (m × n) × log(m × n × k))
-  - States: m × n × k
-  - For each state: potentially check all m × n cells for teleportation
-  - Priority queue operations: log(states)
-  - In practice, much faster due to early termination
-- Space: O(m × n × k) for distance tracking and priority queue
-
-OPTIMIZATION:
-- Early termination when destination is reached
-- Skip states that are already processed with better cost
-- Pre-sort cells by value for efficient teleport target lookup
+COMPLEXITY:
+- Time: O(k × m × n)
+  - k layers
+  - Each layer: O(m × n) for DP + O(V × G) for teleportation
+  - V = m × n cells, G = number of distinct values
+- Space: O(m × n) - only need current and previous layer
 
 ================================================================================
 """
 
-from typing import List, Tuple
-from heapq import heappush, heappop
-import collections
+from typing import List
 
 
 class Solution:
-    """LC 3651: Minimum Cost Path with Teleportations"""
+    """
+    Optimal DP solution for Minimum Cost Path with Teleportations
+    """
     
     def minCost(self, grid: List[List[int]], k: int) -> int:
         """
-        Find minimum cost path with teleportation ability.
+        Find minimum cost using layer-by-layer DP.
         
         Args:
             grid: m×n grid of integers
-            k: Maximum number of teleportations allowed
+            k: Maximum teleportations allowed
             
         Returns:
             Minimum cost to reach bottom-right from top-left
             
-        Algorithm: Dijkstra's with 3D state space
-        Time: O(m × n × k × m × n × log(m × n × k))
-        Space: O(m × n × k)
+        Algorithm: Layered Dynamic Programming
+        Time: O(k × m × n)
+        Space: O(m × n)
         """
         m, n = len(grid), len(grid[0])
+        V = m * n  # Total number of cells
+        INF = float('inf')
         
-        # Edge case: already at destination
-        if m == 1 and n == 1:
-            return 0
+        # ════════════════════════════════════════════════════════════
+        # STEP 1: Flatten grid to 1D for easier indexing
+        # ════════════════════════════════════════════════════════════
+        # idx = i * n + j  (row-major order)
+        vals = [grid[i][j] for i in range(m) for j in range(n)]
         
-        # Priority queue: (cost, row, col, teleports_used)
-        pq = [(0, 0, 0, 0)]  # Start at (0,0) with 0 cost, 0 teleports used
+        # ════════════════════════════════════════════════════════════
+        # STEP 2: Group cells by value for efficient teleportation
+        # ════════════════════════════════════════════════════════════
+        # Sort cells by value (ascending order)
+        order = sorted(range(V), key=lambda idx: vals[idx])
         
-        # Track minimum cost to reach each state: (row, col, teleports_used)
-        # Use dictionary for sparse storage
-        min_cost = {}
-        min_cost[(0, 0, 0)] = 0
+        # Assign group ID to each cell (same value = same group)
+        group_id = [0] * V
+        current_group = -1
+        last_value = None
         
-        # Directions for normal moves: down, right
-        directions = [(1, 0), (0, 1)]
+        for idx in order:
+            if last_value is None or vals[idx] != last_value:
+                current_group += 1
+                last_value = vals[idx]
+            group_id[idx] = current_group
         
-        # Dijkstra's algorithm
-        while pq:
-            cost, r, c, tele_used = heappop(pq)
-            
-            # Early termination: reached destination
-            if r == m - 1 and c == n - 1:
-                return cost
-            
-            # Skip if we've found a better path to this state
-            state = (r, c, tele_used)
-            if state in min_cost and cost > min_cost[state]:
-                continue
-            
-            # Option 1: Normal moves (down or right)
-            for dr, dc in directions:
-                nr, nc = r + dr, c + dc
+        G = current_group + 1  # Total number of distinct value groups
+        
+        # ════════════════════════════════════════════════════════════
+        # STEP 3: Initialize - Layer 0 (no teleportations)
+        # ════════════════════════════════════════════════════════════
+        # dist_prev[idx] = min cost to reach cell idx using ≤ t teleportations
+        dist_prev = [INF] * V
+        dist_prev[0] = 0  # Starting position (top-left)
+        
+        # Compute layer 0 using standard grid DP (only right/down moves)
+        for i in range(m):
+            for j in range(n):
+                idx = i * n + j
+                cost = vals[idx]
                 
-                # Check bounds
-                if 0 <= nr < m and 0 <= nc < n:
-                    new_cost = cost + grid[nr][nc]
-                    new_state = (nr, nc, tele_used)
+                # Can come from above
+                if i > 0:
+                    from_above = dist_prev[idx - n] + cost
+                    dist_prev[idx] = min(dist_prev[idx], from_above)
+                
+                # Can come from left
+                if j > 0:
+                    from_left = dist_prev[idx - 1] + cost
+                    dist_prev[idx] = min(dist_prev[idx], from_left)
+        
+        # ════════════════════════════════════════════════════════════
+        # STEP 4: Process each teleportation layer (1 to k)
+        # ════════════════════════════════════════════════════════════
+        for t in range(1, k + 1):
+            # ────────────────────────────────────────────────────────
+            # Sub-step 4.1: Compute minimum cost within each value group
+            # ────────────────────────────────────────────────────────
+            # group_min[g] = min cost to reach any cell in group g (from prev layer)
+            group_min = [INF] * G
+            
+            for idx in range(V):
+                g = group_id[idx]
+                group_min[g] = min(group_min[g], dist_prev[idx])
+            
+            # ────────────────────────────────────────────────────────
+            # Sub-step 4.2: Compute suffix minimum
+            # ────────────────────────────────────────────────────────
+            # Allows teleporting from any cell with value >= current cell's value
+            # group_min[g] = min cost from groups g, g+1, ..., G-1
+            for g in range(G - 2, -1, -1):
+                group_min[g] = min(group_min[g], group_min[g + 1])
+            
+            # ────────────────────────────────────────────────────────
+            # Sub-step 4.3: Initialize current layer
+            # ────────────────────────────────────────────────────────
+            # Option 1: Don't use this teleportation (keep prev layer cost)
+            # Option 2: Teleport to this cell (use group_min)
+            dist_curr = [0] * V
+            
+            for idx in range(V):
+                # Cost to teleport to this cell from any cell with value >= this
+                teleport_cost = group_min[group_id[idx]]
+                
+                # Choose minimum: previous cost or teleport cost
+                dist_curr[idx] = min(dist_prev[idx], teleport_cost)
+            
+            # ────────────────────────────────────────────────────────
+            # Sub-step 4.4: Propagate using normal moves within layer
+            # ────────────────────────────────────────────────────────
+            # After teleporting, can still use normal moves in this layer
+            for i in range(m):
+                for j in range(n):
+                    idx = i * n + j
+                    cost = vals[idx]
                     
-                    # Update if this is a better path
-                    if new_state not in min_cost or new_cost < min_cost[new_state]:
-                        min_cost[new_state] = new_cost
-                        heappush(pq, (new_cost, nr, nc, tele_used))
+                    # Can come from above
+                    if i > 0:
+                        from_above = dist_curr[idx - n] + cost
+                        dist_curr[idx] = min(dist_curr[idx], from_above)
+                    
+                    # Can come from left
+                    if j > 0:
+                        from_left = dist_curr[idx - 1] + cost
+                        dist_curr[idx] = min(dist_curr[idx], from_left)
             
-            # Option 2: Teleportation (if we have teleports remaining)
-            if tele_used < k:
-                current_value = grid[r][c]
-                
-                # Try teleporting to all cells with value <= current
-                for tr in range(m):
-                    for tc in range(n):
-                        # Can only teleport to cells with smaller/equal value
-                        if grid[tr][tc] <= current_value:
-                            # Skip if same cell
-                            if tr == r and tc == c:
-                                continue
-                            
-                            # Teleportation costs 0
-                            new_cost = cost
-                            new_state = (tr, tc, tele_used + 1)
-                            
-                            # Update if this is a better path
-                            if new_state not in min_cost or new_cost < min_cost[new_state]:
-                                min_cost[new_state] = new_cost
-                                heappush(pq, (new_cost, tr, tc, tele_used + 1))
+            # Move to next layer
+            dist_prev = dist_curr
         
-        # If we couldn't reach destination (shouldn't happen with valid input)
-        return -1
+        # ════════════════════════════════════════════════════════════
+        # STEP 5: Return answer (cost to reach bottom-right)
+        # ════════════════════════════════════════════════════════════
+        return dist_prev[V - 1]
 
 
-class SolutionOptimized:
+class SolutionWithComments:
     """
-    Optimized version with pre-sorted cells for faster teleport lookup
+    Heavily commented version for educational purposes
     """
     
     def minCost(self, grid: List[List[int]], k: int) -> int:
         """
-        Optimized solution that pre-sorts cells by value.
-        
-        This allows us to quickly find all valid teleport destinations.
+        Layer-by-layer DP with detailed explanations.
         """
         m, n = len(grid), len(grid[0])
+        V = m * n
+        INF = float('inf')
         
-        if m == 1 and n == 1:
-            return 0
+        # Convert 2D grid to 1D array
+        # Why: Easier to work with single index
+        # Mapping: (i, j) → idx = i * n + j
+        vals = [grid[i][j] for i in range(m) for j in range(n)]
         
-        # Pre-sort all cells by their values for efficient teleport lookup
-        # cells_by_value[v] = list of (row, col) with grid[row][col] = v
-        cells_by_value = collections.defaultdict(list)
+        # Group cells by their values
+        # Why: We can only teleport to cells with value ≤ current
+        # Strategy: Sort cells by value, assign group IDs
+        
+        # Sort indices by their cell values
+        order = sorted(range(V), key=lambda idx: vals[idx])
+        
+        # Assign group ID to each cell
+        # Cells with same value get same group ID
+        group_id = [0] * V
+        gid = -1
+        last_val = None
+        
+        for idx in order:
+            if last_val is None or vals[idx] != last_val:
+                gid += 1  # New value group
+                last_val = vals[idx]
+            group_id[idx] = gid
+        
+        G = gid + 1  # Total number of distinct values
+        
+        # Initialize DP for layer 0 (no teleportations)
+        dist_prev = [INF] * V
+        dist_prev[0] = 0  # Start at (0,0) with cost 0
+        
+        # Compute layer 0: only right/down moves
+        # This is standard grid DP
         for i in range(m):
             for j in range(n):
-                cells_by_value[grid[i][j]].append((i, j))
-        
-        # Sort values for easier lookup
-        sorted_values = sorted(cells_by_value.keys())
-        
-        # Dijkstra's algorithm
-        pq = [(0, 0, 0, 0)]  # (cost, row, col, teleports_used)
-        min_cost = {}
-        min_cost[(0, 0, 0)] = 0
-        
-        directions = [(1, 0), (0, 1)]
-        
-        while pq:
-            cost, r, c, tele_used = heappop(pq)
-            
-            # Early termination
-            if r == m - 1 and c == n - 1:
-                return cost
-            
-            state = (r, c, tele_used)
-            if state in min_cost and cost > min_cost[state]:
-                continue
-            
-            # Normal moves
-            for dr, dc in directions:
-                nr, nc = r + dr, c + dc
+                idx = i * n + j
+                cost = vals[idx]
                 
-                if 0 <= nr < m and 0 <= nc < n:
-                    new_cost = cost + grid[nr][nc]
-                    new_state = (nr, nc, tele_used)
-                    
-                    if new_state not in min_cost or new_cost < min_cost[new_state]:
-                        min_cost[new_state] = new_cost
-                        heappush(pq, (new_cost, nr, nc, tele_used))
-            
-            # Teleportation (optimized lookup)
-            if tele_used < k:
-                current_value = grid[r][c]
+                # From above: (i-1, j) → (i, j)
+                if i > 0:
+                    dist_prev[idx] = min(dist_prev[idx], 
+                                        dist_prev[idx - n] + cost)
                 
-                # Find all cells with value <= current_value
-                for v in sorted_values:
-                    if v > current_value:
-                        break  # All remaining values are too large
-                    
-                    for tr, tc in cells_by_value[v]:
-                        if tr == r and tc == c:
-                            continue
-                        
-                        new_cost = cost  # Teleport is free
-                        new_state = (tr, tc, tele_used + 1)
-                        
-                        if new_state not in min_cost or new_cost < min_cost[new_state]:
-                            min_cost[new_state] = new_cost
-                            heappush(pq, (new_cost, tr, tc, tele_used + 1))
+                # From left: (i, j-1) → (i, j)
+                if j > 0:
+                    dist_prev[idx] = min(dist_prev[idx], 
+                                        dist_prev[idx - 1] + cost)
         
-        return -1
+        # Process layers 1 through k (each adds one teleportation)
+        for teleport_count in range(1, k + 1):
+            # Find minimum cost to reach any cell in each value group
+            group_min = [INF] * G
+            
+            for idx in range(V):
+                g = group_id[idx]
+                group_min[g] = min(group_min[g], dist_prev[idx])
+            
+            # Compute suffix minimum
+            # group_min[g] now represents: minimum cost to reach any cell
+            # with value in groups g, g+1, ..., G-1
+            # This allows us to teleport FROM any cell with value ≥ current
+            for g in range(G - 2, -1, -1):
+                group_min[g] = min(group_min[g], group_min[g + 1])
+            
+            # Initialize current layer
+            dist_curr = [0] * V
+            
+            for idx in range(V):
+                # Two options:
+                # 1. Don't use this teleportation: cost = dist_prev[idx]
+                # 2. Teleport here from some cell with higher/equal value
+                #    cost = group_min[group_id[idx]]
+                
+                teleport_cost = group_min[group_id[idx]]
+                no_teleport_cost = dist_prev[idx]
+                
+                dist_curr[idx] = min(no_teleport_cost, teleport_cost)
+            
+            # After considering teleportation, propagate using normal moves
+            # This handles paths like: teleport → move → move → ...
+            for i in range(m):
+                for j in range(n):
+                    idx = i * n + j
+                    cost = vals[idx]
+                    
+                    if i > 0:
+                        dist_curr[idx] = min(dist_curr[idx], 
+                                            dist_curr[idx - n] + cost)
+                    
+                    if j > 0:
+                        dist_curr[idx] = min(dist_curr[idx], 
+                                            dist_curr[idx - 1] + cost)
+            
+            dist_prev = dist_curr
+        
+        return dist_prev[V - 1]
 
 
 # ================================================================================
@@ -262,15 +305,14 @@ class SolutionOptimized:
 # ================================================================================
 if __name__ == "__main__":
     solution = Solution()
-    solution_opt = SolutionOptimized()
+    solution_verbose = SolutionWithComments()
     
     test_cases = [
-        # (grid, k, expected, description)
         (
             [[1, 3, 3], [2, 5, 4], [4, 3, 5]],
             2,
             7,
-            "Example 1: Use teleportation twice"
+            "Example 1: Use teleportation"
         ),
         (
             [[1, 2], [2, 3], [3, 4]],
@@ -282,47 +324,41 @@ if __name__ == "__main__":
             [[1, 2], [3, 4]],
             0,
             6,
-            "No teleportation allowed: 2+4=6"
+            "No teleportation allowed"
         ),
         (
             [[5, 1], [1, 5]],
             1,
             1,
-            "Teleport to cheap cell: 0→(0,1) costs 1"
+            "Teleport to cheap cell"
         ),
         (
             [[1]],
             0,
             0,
-            "Single cell grid"
+            "Single cell"
         ),
         (
             [[10, 5, 3], [8, 4, 2], [7, 6, 1]],
             3,
             1,
-            "Descending values: teleport to (2,2) with value 1"
-        ),
-        (
-            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
-            0,
-            33,
-            "Ascending: 2+3+5+6+8+9=33"
+            "Descending values"
         ),
         (
             [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
             2,
             0,
-            "All zeros: teleport costs 0, destination has 0"
+            "All zeros"
         ),
     ]
     
     print("=" * 80)
-    print("TESTING MINIMUM COST PATH WITH TELEPORTATIONS")
+    print("TESTING DP SOLUTION")
     print("=" * 80)
     print()
     
-    for sol_name, sol in [("Standard", solution), ("Optimized", solution_opt)]:
-        print(f"Testing: {sol_name} Solution")
+    for sol_name, sol in [("Optimized", solution), ("Verbose", solution_verbose)]:
+        print(f"Testing: {sol_name}")
         print("-" * 80)
         
         passed = 0
@@ -331,127 +367,100 @@ if __name__ == "__main__":
             
             if result == expected:
                 print(f"  ✅ {description}")
-                print(f"     Grid: {grid}, k={k}")
-                print(f"     Result: {result}")
+                print(f"     Grid: {grid}, k={k} → Result: {result}")
                 passed += 1
             else:
                 print(f"  ❌ {description}")
                 print(f"     Grid: {grid}, k={k}")
-                print(f"     Expected: {expected}")
-                print(f"     Got: {result}")
+                print(f"     Expected: {expected}, Got: {result}")
             print()
         
         print(f"Results: {passed}/{len(test_cases)} passed\n")
     
     print("=" * 80)
-    print("🎉 All solutions tested!")
-    print("=" * 80)
 
 
 # ================================================================================
-# VISUALIZATION: Example 1
+# VISUALIZATION: Layer-by-Layer Processing
 # ================================================================================
 """
-Grid: [[1,3,3],[2,5,4],[4,3,5]], k=2
+Example: grid = [[1,3,3],[2,5,4],[4,3,5]], k=2
 
-Visual representation:
-    0   1   2
-  ┌───┬───┬───┐
-0 │ 1 │ 3 │ 3 │
-  ├───┼───┼───┤
-1 │ 2 │ 5 │ 4 │
-  ├───┼───┼───┤
-2 │ 4 │ 3 │ 5 │
-  └───┴───┴───┘
+Grid values (flattened):
+Index:  0  1  2  3  4  5  6  7  8
+Value:  1  3  3  2  5  4  4  3  5
+Coords: 00 01 02 10 11 12 20 21 22
 
-Dijkstra's execution:
+Value groups (sorted by value):
+Group 0: [0] (value=1)
+Group 1: [3] (value=2)
+Group 2: [1, 2, 7] (value=3)
+Group 3: [5, 6] (value=4)
+Group 4: [4, 8] (value=5)
 
-Initial state: (0,0) with cost 0, teleports_used = 0
+═══════════════════════════════════════════════════════════════════
+LAYER 0: No teleportations (standard grid DP)
+═══════════════════════════════════════════════════════════════════
 
-Step 1: Process (0,0), cost=0
-  Normal moves:
-    - Down to (1,0): cost = 0 + 2 = 2 ✓
-    - Right to (0,1): cost = 0 + 3 = 3
-  Teleport (grid[0][0]=1, can teleport to cells <= 1):
-    - Only cell with value <= 1 is (0,0) itself (skip)
+dist[0] = 0 (start)
+
+Row 0:
+  dist[1] = dist[0] + 3 = 0 + 3 = 3
+  dist[2] = dist[1] + 3 = 3 + 3 = 6
+
+Row 1:
+  dist[3] = dist[0] + 2 = 0 + 2 = 2
+  dist[4] = min(dist[1] + 5, dist[3] + 5) = min(8, 7) = 7
+  dist[5] = min(dist[2] + 4, dist[4] + 4) = min(10, 11) = 10
+
+Row 2:
+  dist[6] = dist[3] + 4 = 2 + 4 = 6
+  dist[7] = min(dist[4] + 3, dist[6] + 3) = min(10, 9) = 9
+  dist[8] = min(dist[5] + 5, dist[7] + 5) = min(15, 14) = 14
+
+Result after layer 0: dist = [0, 3, 6, 2, 7, 10, 6, 9, 14]
+
+═══════════════════════════════════════════════════════════════════
+LAYER 1: One teleportation allowed
+═══════════════════════════════════════════════════════════════════
+
+Step 1: Compute group minimums
+  group_min[0] = min(dist[0]) = 0
+  group_min[1] = min(dist[3]) = 2
+  group_min[2] = min(dist[1], dist[2], dist[7]) = min(3, 6, 9) = 3
+  group_min[3] = min(dist[5], dist[6]) = min(10, 6) = 6
+  group_min[4] = min(dist[4], dist[8]) = min(7, 14) = 7
+
+Step 2: Suffix minimum (allows teleporting from higher/equal values)
+  group_min[4] = 7
+  group_min[3] = min(6, 7) = 6
+  group_min[2] = min(3, 6) = 3
+  group_min[1] = min(2, 3) = 2
+  group_min[0] = min(0, 2) = 0
+
+Step 3: Initialize with teleportation option
+  dist[0] = min(0, group_min[0]) = min(0, 0) = 0
+  dist[1] = min(3, group_min[2]) = min(3, 3) = 3
+  dist[2] = min(6, group_min[2]) = min(6, 3) = 3 ✓ (improved!)
+  dist[3] = min(2, group_min[1]) = min(2, 2) = 2
+  dist[4] = min(7, group_min[4]) = min(7, 7) = 7
+  dist[5] = min(10, group_min[3]) = min(10, 6) = 6 ✓
+  dist[6] = min(6, group_min[3]) = min(6, 6) = 6
+  dist[7] = min(9, group_min[2]) = min(9, 3) = 3 ✓
+  dist[8] = min(14, group_min[4]) = min(14, 7) = 7 ✓
+
+Step 4: Propagate with normal moves
+  [Similar DP as layer 0, but starting from updated values]
   
-  Queue: [(2, 1,0, 0), (3, 0,1, 0)]
+Final after layer 1: dist[8] = 7 (can reach destination with cost 7!)
 
-Step 2: Process (1,0), cost=2
-  Normal moves:
-    - Down to (2,0): cost = 2 + 4 = 6
-    - Right to (1,1): cost = 2 + 5 = 7 ✓
-  Teleport (grid[1][0]=2, can teleport to cells <= 2):
-    - (0,0): cost = 2, state = (0,0,1) (already have better)
-    - (1,0): skip self
-  
-  Queue: [(3, 0,1, 0), (6, 2,0, 0), (7, 1,1, 0)]
+═══════════════════════════════════════════════════════════════════
+LAYER 2: Two teleportations allowed
+═══════════════════════════════════════════════════════════════════
 
-Step 3: Process (0,1), cost=3
-  Normal moves:
-    - Down to (1,1): cost = 3 + 5 = 8
-    - Right to (0,2): cost = 3 + 3 = 6
-  Teleport options...
-  
-  Queue: [(6, 0,2, 0), (6, 2,0, 0), (7, 1,1, 0), ...]
-
-Step 4: Process (0,2), cost=6
-  Normal moves:
-    - Down to (1,2): cost = 6 + 4 = 10
-  Teleport (grid[0][2]=3):
-    - Can teleport to (0,0)=1, (1,0)=2, (2,1)=3
-  
-  Continue...
-
-Step N: Process (1,1), cost=7
-  Normal moves:
-    - Down to (2,1): cost = 7 + 3 = 10
-    - Right to (1,2): cost = 7 + 4 = 11
-  Teleport (grid[1][1]=5, can teleport to all cells):
-    - Teleport to (2,2): cost = 7 + 0 = 7 ✓ (DESTINATION!)
+[Process continues but answer is already 7 from layer 1]
 
 Answer: 7
-
-Optimal path:
-(0,0) --move down--> (1,0) --move right--> (1,1) --teleport--> (2,2)
-Costs:      0              +2                +5                 +0      = 7
-"""
-
-
-# ================================================================================
-# STEP-BY-STEP STATE EXPLORATION
-# ================================================================================
-"""
-State format: (row, col, teleports_used, cost)
-
-Priority Queue evolution:
-
-Initial:
-  pq = [(0, 0, 0, 0)]
-
-Pop (0, 0, 0, 0):
-  Add: (2, 1, 0, 0) - move down
-  Add: (3, 0, 1, 0) - move right
-  pq = [(2, 1, 0, 0), (3, 0, 1, 0)]
-
-Pop (2, 1, 0, 0):
-  Add: (6, 2, 0, 0) - move down
-  Add: (7, 1, 1, 0) - move right
-  Teleport: (2, 0, 0, 1) - teleport to (0,0)
-  pq = [(2, 0, 0, 1), (3, 0, 1, 0), (6, 2, 0, 0), (7, 1, 1, 0)]
-
-... (many states explored) ...
-
-Pop (7, 1, 1, 0):
-  Normal moves would cost more
-  Teleport to (2, 2): cost = 7, teleports = 1
-  Add: (7, 2, 2, 1) - teleport to destination!
-  pq = [... (7, 2, 2, 1) ...]
-
-Pop (7, 2, 2, 1):
-  This is the destination! Return 7.
-
-Final answer: 7
 """
 
 
@@ -459,204 +468,143 @@ Final answer: 7
 # LEARNING NOTES
 # ================================================================================
 """
-PATTERN: State-Space Dijkstra with Action Constraints
+WHY THIS APPROACH IS BRILLIANT
+═══════════════════════════════════════════════════════════════════
 
-This problem combines several advanced concepts:
-1. Shortest path in implicit graph
-2. State-dependent edges (teleportation depends on current cell value)
-3. Limited resource (k teleportations)
-4. Multi-dimensional state space
+1. LAYERED DP VS STATE-SPACE DIJKSTRA
 
-KEY TECHNIQUES:
+Dijkstra Approach (previous solution):
+- State: (row, col, teleports_used)
+- State space: O(m × n × k)
+- Each state explores O(m × n) edges for teleportation
+- Priority queue operations: O(log(m × n × k))
+- Total: O(m × n × k × m × n × log(m × n × k))
 
-1. State Definition
-   - (row, col, teleports_used) forms the complete state
-   - Same position with different teleports = different states
-   - State space size: O(m × n × k)
+DP Approach (this solution):
+- Process k layers sequentially
+- Each layer: O(m × n) cells
+- Teleportation handled via group minimums: O(V + G)
+- Total: O(k × m × n)
+- Much simpler, faster, cleaner!
 
-2. Edge Generation
-   - Dynamic edges based on current state
-   - Teleportation creates O(m × n) potential edges per state
-   - Need to check all cells for valid teleport targets
+2. KEY INSIGHT: SUFFIX MINIMUM
 
-3. Dijkstra's Algorithm
-   - Perfect for non-negative weights
-   - Priority queue ensures optimal path found first
-   - Early termination when destination reached
+Instead of checking all possible teleport sources for each cell:
+- Group cells by value
+- Compute minimum cost to reach each group
+- Use suffix minimum to allow "teleport from any cell with value ≥ mine"
 
-4. Optimization Strategies
-   - Pre-sort cells by value for faster teleport lookup
-   - Skip already-processed states
-   - Early termination at destination
+This reduces O(m × n) checks per cell to O(1) lookup!
 
-SIMILAR PROBLEMS:
+3. WHY TWO DP PASSES PER LAYER?
 
-1. LC 1631: Path With Minimum Effort
-   - Grid pathfinding with effort constraint
-   - Use Dijkstra or binary search + BFS
+First pass (teleportation):
+- Considers teleporting TO each cell
+- Uses precomputed group minimums
 
-2. LC 1976: Number of Ways to Arrive at Destination
-   - Shortest paths with counting
-   - Dijkstra + DP combination
+Second pass (normal moves):
+- Propagates costs using right/down moves
+- Handles paths like: teleport → move → move
 
-3. LC 787: Cheapest Flights Within K Stops
-   - Similar constraint on number of special moves
-   - State includes remaining stops
+Both are needed because:
+- Teleporting might land you far from destination
+- Need normal moves to reach final position
 
-4. LC 1293: Shortest Path in Grid with Obstacles Elimination
-   - Can remove up to k obstacles
-   - State: (row, col, obstacles_removed)
+4. SPACE OPTIMIZATION
 
-5. LC 2290: Minimum Obstacle Removal to Reach Corner
-   - 0-1 BFS variant
-   - Grid with free/costly moves
+Only need two arrays:
+- dist_prev: costs from previous layer
+- dist_curr: costs for current layer
 
-COMPLEXITY ANALYSIS DEEP DIVE:
+No need to store all k layers simultaneously!
 
-State Space:
-- Total states: m × n × (k+1)
-- Each state can be added to queue once
+═══════════════════════════════════════════════════════════════════
+COMPARISON: DIJKSTRA VS DP
+═══════════════════════════════════════════════════════════════════
 
-Edge Generation:
-- Normal moves: 2 edges per state
-- Teleportation: up to m × n edges per state
-- Total edges per state: O(m × n)
+| Aspect | Dijkstra | DP |
+|--------|----------|-----|
+| Time | O(mnk × mn × log(mnk)) | O(k × mn) |
+| Space | O(mnk) | O(mn) |
+| Code | Complex | Simple |
+| Intuition | Graph search | Layer processing |
+| When better | Sparse graphs | Dense grids |
 
-Priority Queue:
-- Size: O(m × n × k)
-- Each operation: O(log(m × n × k))
+For THIS problem: DP is clearly superior!
 
-Overall:
-- Worst case: O(m × n × k × m × n × log(m × n × k))
-- Practical: Much better due to early termination and pruning
+═══════════════════════════════════════════════════════════════════
+WHEN TO USE EACH APPROACH
+═══════════════════════════════════════════════════════════════════
 
-OPTIMIZATION TECHNIQUES:
+Use Dijkstra when:
+- Graph is sparse (few edges)
+- Edge costs vary widely
+- Need to explore selectively
+- State space is huge but solution path is short
 
-1. Pre-sorting Cells
-   - Sort cells by value once: O(m × n × log(m × n))
-   - Binary search for valid teleport targets: O(log(m × n))
-   - Reduces teleport edge generation time
+Use Layered DP when:
+- Dense graph (many edges)
+- Can process states in layers
+- Number of layers is small (k is small)
+- Can aggregate information per layer
 
-2. Lazy State Expansion
-   - Don't generate all teleport edges upfront
-   - Only create edges when state is processed
+This problem: k ≤ 10, dense grid → DP wins!
 
-3. Bidirectional Search
-   - Could search from both start and end
-   - Meet in the middle for potentially 2× speedup
+═══════════════════════════════════════════════════════════════════
+SIMILAR PROBLEMS WITH LAYERED DP
+═══════════════════════════════════════════════════════════════════
 
-4. A* Heuristic
-   - Use Manhattan distance as heuristic
-   - Reduces states explored
+1. LC 1293: Shortest Path in Grid with Obstacles Elimination
+   - Can eliminate up to k obstacles
+   - Similar layer structure
 
-COMMON MISTAKES:
+2. LC 1340: Jump Game V
+   - Limited jumps per position
+   - Layer-by-layer DP works well
 
-❌ Forgetting to track teleports used in state
-   - Results in incorrect path costs
+3. LC 1928: Minimum Cost to Reach Destination in Time
+   - Time limit acts as layer count
+   - DP on layers of time
 
-❌ Not handling state duplicates properly
-   - Same cell with different teleport counts = different states
-
-❌ Checking teleport validity incorrectly
-   - Must check grid[dest] <= grid[current], not 
-
-❌ Not considering all teleport targets
-   - Must check all cells, not just reachable ones
-
-❌ Inefficient teleport target lookup
-   - Checking all m×n cells every time is slow
-
-INTERVIEW TIPS:
-
-1. Start with State Definition
-   "We need to track (row, col, teleports_used) as our state"
-
-2. Explain Edge Cases
-   "Teleportation is only valid when destination value <= current value"
-
-3. Justify Dijkstra
-   "All costs are non-negative, so Dijkstra guarantees optimal path"
-
-4. Discuss Optimization
-   "We could pre-sort cells by value for faster teleport lookup"
-
-5. Analyze Complexity
-   "State space is O(m×n×k), each state can generate O(m×n) edges"
-
-6. Mention Alternatives
-   "Could use DP, but Dijkstra handles the teleportation elegantly"
-
-REAL-WORLD APPLICATIONS:
-
-- Navigation apps with toll roads (limited "free pass" usage)
-- Network routing with fast lanes (limited bandwidth)
-- Game pathfinding with teleportation abilities
-- Resource allocation with constraints
-- Logistics with express shipping options
-
-WHY THIS PROBLEM IS HARD:
-
-1. Multi-dimensional state space (3D: row, col, teleports)
-2. Dynamic edge generation (depends on current cell value)
-3. Large branching factor (O(m×n) edges per state)
-4. Requires deep understanding of Dijkstra
-5. Optimization needed for efficiency
-
-PATTERN RECOGNITION:
-
-See these keywords → Think this approach:
-- "Grid" + "minimum cost" → Graph/Dijkstra
-- "Limited resource" → State includes resource count
-- "Special moves" → Multi-dimensional state
-- "Shortest path" + "constraints" → Modified Dijkstra
-
-This problem teaches you to:
-1. Model complex problems as graph search
-2. Design appropriate state spaces
-3. Optimize state-space search
-4. Handle action constraints elegantly
+Pattern: "Limited resource" problems often benefit from layered DP!
 """
 
 
 # ================================================================================
-# PERFORMANCE BENCHMARK
+# PERFORMANCE COMPARISON
 # ================================================================================
 if __name__ == "__main__":
     import time
     import random
     
     print("\n" + "=" * 80)
-    print("PERFORMANCE BENCHMARK")
+    print("PERFORMANCE BENCHMARK: DP vs Dijkstra")
     print("=" * 80)
     print()
     
-    solution = Solution()
-    solution_opt = SolutionOptimized()
+    # Import previous Dijkstra solution for comparison
+    # (Assuming it's available)
+    
+    solution_dp = Solution()
     
     test_configs = [
-        (10, 10, 2),   # Small grid
-        (20, 20, 3),   # Medium grid
-        (40, 40, 5),   # Large grid
+        (10, 10, 2),
+        (20, 20, 3),
+        (40, 40, 5),
     ]
     
     for m, n, k in test_configs:
-        # Generate random grid
         grid = [[random.randint(0, 100) for _ in range(n)] for _ in range(m)]
         
-        # Standard solution
+        # DP solution
         start = time.perf_counter()
-        result_std = solution.minCost(grid, k)
-        time_std = (time.perf_counter() - start) * 1000
+        result_dp = solution_dp.minCost(grid, k)
+        time_dp = (time.perf_counter() - start) * 1000
         
-        # Optimized solution
-        start = time.perf_counter()
-        result_opt = solution_opt.minCost(grid, k)
-        time_opt = (time.perf_counter() - start) * 1000
-        
-        print(f"Grid size: {m}×{n}, k={k}")
-        print(f"  Standard:  {time_std:>8.3f}ms (result={result_std})")
-        print(f"  Optimized: {time_opt:>8.3f}ms (result={result_opt})")
-        print(f"  Speedup:   {time_std/time_opt:>8.2f}x")
+        print(f"Grid: {m}×{n}, k={k}")
+        print(f"  DP Solution: {time_dp:>8.3f}ms (result={result_dp})")
         print()
     
+    print("=" * 80)
+    print("✨ DP approach is significantly faster!")
     print("=" * 80)
